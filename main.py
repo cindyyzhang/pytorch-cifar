@@ -10,9 +10,11 @@ import torchvision.transforms as transforms
 
 import os
 import argparse
+import numpy as np
 
 from models import *
-from utils import progress_bar
+from PIL import Image as im
+#from utils import progress_bar
 
 
 parser = argparse.ArgumentParser(description='PyTorch CIFAR10 Training')
@@ -41,11 +43,32 @@ transform_test = transforms.Compose([
 
 trainset = torchvision.datasets.CIFAR10(
     root='./data', train=True, download=True, transform=transform_train)
-trainloader = torch.utils.data.DataLoader(
-    trainset, batch_size=128, shuffle=True, num_workers=2)
-
 testset = torchvision.datasets.CIFAR10(
     root='./data', train=False, download=True, transform=transform_test)
+
+images = np.load('part0.npz', allow_pickle = True)
+
+def convert_image(img_array):
+  image = im.fromarray((img_array * 255).astype(np.uint8),'RGB')
+  return image
+
+class CIFAR10_plus(torch.utils.data.Dataset):
+    def __init__(self, added_length):
+        self.dataset_train = trainset
+        self.added_length = added_length
+
+    def __getitem__(self, index):
+        if index < len(self.dataset_train):
+            (img, label) = self.dataset_train[index]
+        else:
+            (img, label) = (convert_image(images['X'][index - 50000]), images['Y'][index - 50000])
+        return img, label
+
+    def __len__(self):
+        return len(self.dataset_train) + self.added_length
+
+trainloader = torch.utils.data.DataLoader(
+    CIFAR10_plus(5000), batch_size=128, shuffle=True, num_workers=2)
 testloader = torch.utils.data.DataLoader(
     testset, batch_size=100, shuffle=False, num_workers=2)
 
@@ -109,9 +132,6 @@ def train(epoch):
         total += targets.size(0)
         correct += predicted.eq(targets).sum().item()
 
-        progress_bar(batch_idx, len(trainloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)'
-                     % (train_loss/(batch_idx+1), 100.*correct/total, correct, total))
-
 
 def test(epoch):
     global best_acc
@@ -130,13 +150,10 @@ def test(epoch):
             total += targets.size(0)
             correct += predicted.eq(targets).sum().item()
 
-            progress_bar(batch_idx, len(testloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)'
-                         % (test_loss/(batch_idx+1), 100.*correct/total, correct, total))
-
     # Save checkpoint.
     acc = 100.*correct/total
     if acc > best_acc:
-        print('Saving..')
+        #print('Saving..')
         state = {
             'net': net.state_dict(),
             'acc': acc,
@@ -146,6 +163,7 @@ def test(epoch):
             os.mkdir('checkpoint')
         torch.save(state, './checkpoint/ckpt.pth')
         best_acc = acc
+        print("best acc: ", best_acc)
 
 
 for epoch in range(start_epoch, start_epoch+200):
