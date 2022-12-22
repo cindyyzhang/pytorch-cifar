@@ -7,6 +7,7 @@ import torch.backends.cudnn as cudnn
 
 import torchvision
 import torchvision.transforms as transforms
+import torch.multiprocessing
 
 import os
 import argparse
@@ -16,7 +17,7 @@ from models import *
 from PIL import Image as im
 #from utils import progress_bar
 
-
+torch.multiprocessing.set_sharing_strategy('file_system')
 parser = argparse.ArgumentParser(description='PyTorch CIFAR10 Training')
 parser.add_argument('--lr', default=0.1, type=float, help='learning rate')
 parser.add_argument('--resume', '-r', action='store_true',
@@ -46,7 +47,7 @@ trainset = torchvision.datasets.CIFAR10(
 testset = torchvision.datasets.CIFAR10(
     root='./data', train=False, download=True, transform=transform_test)
 
-images = np.load('part0.npz', allow_pickle = True)
+images = np.load('part0.npz', allow_pickle = False)
 
 def convert_image(img_array):
   image = im.fromarray((img_array * 255).astype(np.uint8),'RGB')
@@ -61,14 +62,14 @@ class CIFAR10_plus(torch.utils.data.Dataset):
         if index < len(self.dataset_train):
             (img, label) = self.dataset_train[index]
         else:
-            (img, label) = (convert_image(images['X'][index - 50000]), images['Y'][index - 50000])
+            (img, label) = (transform_train(convert_image(images['X'][index])), images['Y'][index])
         return img, label
 
     def __len__(self):
         return len(self.dataset_train) + self.added_length
 
 trainloader = torch.utils.data.DataLoader(
-    CIFAR10_plus(5000), batch_size=128, shuffle=True, num_workers=2)
+    CIFAR10_plus(5000), batch_size=128, shuffle=True, num_workers=0)
 testloader = torch.utils.data.DataLoader(
     testset, batch_size=100, shuffle=False, num_workers=2)
 
@@ -78,7 +79,7 @@ classes = ('plane', 'car', 'bird', 'cat', 'deer',
 # Model
 print('==> Building model..')
 # net = VGG('VGG19')
-# net = ResNet18()
+net = ResNet18()
 # net = PreActResNet18()
 # net = GoogLeNet()
 # net = DenseNet121()
@@ -91,7 +92,7 @@ print('==> Building model..')
 # net = ShuffleNetV2(1)
 # net = EfficientNetB0()
 # net = RegNetX_200MF()
-net = SimpleDLA()
+# net = SimpleDLA()
 net = net.to(device)
 if device == 'cuda':
     net = torch.nn.DataParallel(net)
@@ -120,6 +121,7 @@ def train(epoch):
     correct = 0
     total = 0
     for batch_idx, (inputs, targets) in enumerate(trainloader):
+        print("new batch: ", batch_idx)
         inputs, targets = inputs.to(device), targets.to(device)
         optimizer.zero_grad()
         outputs = net(inputs)
