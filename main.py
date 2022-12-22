@@ -12,10 +12,11 @@ import torch.multiprocessing
 import os
 import argparse
 import numpy as np
+import wandb
 
 from models import *
 from PIL import Image as im
-#from utils import progress_bar
+wandb.init(project="ddpm-augmentation")
 
 torch.multiprocessing.set_sharing_strategy('file_system')
 parser = argparse.ArgumentParser(description='PyTorch CIFAR10 Training')
@@ -27,6 +28,12 @@ args = parser.parse_args()
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 best_acc = 0  # best test accuracy
 start_epoch = 0  # start from epoch 0 or last checkpoint epoch
+
+wandb.config = {
+  "learning_rate": 0.1,
+  "epochs": 200,
+  "batch_size": 128
+}
 
 # Data
 print('==> Preparing data..')
@@ -55,14 +62,16 @@ def convert_image(img_array):
 
 class CIFAR10_plus(torch.utils.data.Dataset):
     def __init__(self, added_length):
-        self.dataset_train = trainset
+        self.dataset_train = []
         self.added_length = added_length
+        for i in range(len(trainset + added_length)):
+            if i < len(trainset):
+                self.dataset_train.append(trainset[i])
+            else:
+                self.dataset_train.append((transform_train(convert_image(images['X'][i])), images['Y'][i]))
 
     def __getitem__(self, index):
-        if index < len(self.dataset_train):
-            (img, label) = self.dataset_train[index]
-        else:
-            (img, label) = (transform_train(convert_image(images['X'][index])), images['Y'][index])
+        (img, label) = self.dataset_train[index]
         return img, label
 
     def __len__(self):
@@ -133,6 +142,7 @@ def train(epoch):
         _, predicted = outputs.max(1)
         total += targets.size(0)
         correct += predicted.eq(targets).sum().item()
+    wandb.log({"train_loss": train_loss})
 
 
 def test(epoch):
@@ -151,9 +161,11 @@ def test(epoch):
             _, predicted = outputs.max(1)
             total += targets.size(0)
             correct += predicted.eq(targets).sum().item()
+        wandb.log({"test_loss": test_loss})
 
     # Save checkpoint.
     acc = 100.*correct/total
+    wandb.log({"acc": acc})
     if acc > best_acc:
         #print('Saving..')
         state = {
